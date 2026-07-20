@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { supabase } from "./supabaseClient";
 
 // ── 7-day meal rotation ──
 const MEAL_PLAN = {
@@ -130,15 +131,56 @@ const EMPTY_DAY = {
   submitted: false,
 };
 
-// ── Storage ──
-async function loadDay(key) {
-  try {
-    const r = await window.storage.get(`day:${key}`);
-    return r ? JSON.parse(r.value) : null;
-  } catch { return null; }
+// ── Storage (Supabase day_logs, one row per user per day) ──
+function rowToData(row) {
+  if (!row) return null;
+  return {
+    morningWater: row.morning_water,
+    morningWaterType: row.morning_water_type,
+    morningNuts: row.morning_nuts,
+    meals: row.meals,
+    extras: row.extras,
+    waterGlasses: row.water_glasses,
+    submitted: row.submitted,
+  };
 }
-async function saveDay(key, data) {
-  try { await window.storage.set(`day:${key}`, JSON.stringify(data)); } catch (e) { console.error(e); }
+function dataToRow(data, userId, logDate) {
+  return {
+    user_id: userId,
+    log_date: logDate,
+    morning_water: data.morningWater,
+    morning_water_type: data.morningWaterType,
+    morning_nuts: data.morningNuts,
+    meals: data.meals,
+    extras: data.extras,
+    water_glasses: data.waterGlasses,
+    submitted: data.submitted,
+  };
+}
+async function loadDay(userId, logDate) {
+  try {
+    const { data, error } = await supabase
+      .from("day_logs")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("log_date", logDate)
+      .maybeSingle();
+    if (error) throw error;
+    return rowToData(data);
+  } catch (e) {
+    console.error(e);
+    return null;
+  }
+}
+async function saveDay(userId, logDate, data) {
+  try {
+    const { error } = await supabase
+      .from("day_logs")
+      .upsert(dataToRow(data, userId, logDate), { onConflict: "user_id,log_date" });
+    if (error) throw error;
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 // ── Colors ──
@@ -245,7 +287,7 @@ function WeekDot({ label, status, isSelected, onClick }) {
 }
 
 // ── Main App ──
-export default function MealTracker() {
+export default function MealTracker({ userId }) {
   const [today] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [weekAnchor, setWeekAnchor] = useState(new Date());
@@ -271,11 +313,11 @@ export default function MealTracker() {
   // Load selected day
   useEffect(() => {
     setLoading(true);
-    loadDay(key).then((d) => {
+    loadDay(userId, key).then((d) => {
       setData(d || JSON.parse(JSON.stringify(EMPTY_DAY)));
       setLoading(false);
     });
-  }, [key]);
+  }, [userId, key]);
 
   // Load week data for bottom strip
   useEffect(() => {
@@ -283,14 +325,14 @@ export default function MealTracker() {
       const wd = {};
       for (const d of weekDays) {
         const k = dateKey(d);
-        const dayData = await loadDay(k);
+        const dayData = await loadDay(userId, k);
         if (dayData) wd[k] = dayData;
       }
       setWeekData(wd);
     }
     loadWeek();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateKey(weekStart), data]);
+  }, [userId, dateKey(weekStart), data]);
 
   // Normal update: no-op while the day is locked (submitted).
   const update = useCallback((fn) => {
@@ -298,20 +340,20 @@ export default function MealTracker() {
       if (prev.submitted) return prev;
       const next = JSON.parse(JSON.stringify(prev));
       fn(next);
-      saveDay(key, next);
+      saveDay(userId, key, next);
       return next;
     });
-  }, [key]);
+  }, [userId, key]);
 
   // Bypasses the lock — only for the submit/unlock action itself.
   const forceUpdate = useCallback((fn) => {
     setData((prev) => {
       const next = JSON.parse(JSON.stringify(prev));
       fn(next);
-      saveDay(key, next);
+      saveDay(userId, key, next);
       return next;
     });
-  }, [key]);
+  }, [userId, key]);
 
   if (loading || !data) {
     return <div style={{ padding: 40, textAlign: "center", color: C.sub, fontFamily: "Inter, sans-serif" }}>Loading...</div>;

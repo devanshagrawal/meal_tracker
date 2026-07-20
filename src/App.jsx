@@ -127,7 +127,7 @@ export default function App() {
         )}
       </div>
 
-      {view === "profile" ? <ProfileScreen userId={session.user.id} /> : <MealTracker />}
+      {view === "profile" ? <ProfileScreen userId={session.user.id} /> : <MealTracker userId={session.user.id} />}
     </div>
   );
 }
