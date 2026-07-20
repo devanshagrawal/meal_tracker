@@ -3,6 +3,9 @@ import { supabase } from "./supabaseClient";
 const USERNAME_RE = /^[a-z0-9_.-]{3,20}$/;
 const EMAIL_DOMAIN = "mealtracker@gmail.com";
 
+export const GENDER_OPTIONS = ["Male", "Female", "Other", "Prefer not to say"];
+export const CITY_OPTIONS = ["Delhi-NCR", "Bangalore"];
+
 function normalizeUsername(raw) {
   return raw.trim().toLowerCase();
 }
@@ -26,6 +29,18 @@ export function validatePassword(password) {
   return null;
 }
 
+export function validateProfile({ firstName, lastName, age, gender, city }) {
+  if (!firstName.trim()) return "First name is required.";
+  if (!lastName.trim()) return "Last name is required.";
+  const ageNum = Number(age);
+  if (!age || !Number.isInteger(ageNum) || ageNum <= 0 || ageNum >= 120) {
+    return "Enter a valid age.";
+  }
+  if (!GENDER_OPTIONS.includes(gender)) return "Select a gender.";
+  if (!CITY_OPTIONS.includes(city)) return "Select a city.";
+  return null;
+}
+
 async function lookupEmail(username) {
   const { data, error } = await supabase.rpc("get_email_for_username", {
     p_username: username,
@@ -34,12 +49,14 @@ async function lookupEmail(username) {
   return data || null;
 }
 
-export async function signUpWithUsername(rawUsername, password) {
+export async function signUpWithUsername(rawUsername, password, profile) {
   const username = normalizeUsername(rawUsername);
   const usernameError = validateUsername(username);
   if (usernameError) throw new Error(usernameError);
   const passwordError = validatePassword(password);
   if (passwordError) throw new Error(passwordError);
+  const profileError = validateProfile(profile);
+  if (profileError) throw new Error(profileError);
 
   const existing = await lookupEmail(username);
   if (existing) throw new Error("That username is already taken.");
@@ -49,10 +66,16 @@ export async function signUpWithUsername(rawUsername, password) {
   if (error) throw error;
   if (!data.user) throw new Error("Sign up failed. Please try again.");
 
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .insert({ id: data.user.id, username });
-  if (profileError) {
+  const { error: insertError } = await supabase.from("profiles").insert({
+    id: data.user.id,
+    username,
+    first_name: profile.firstName.trim(),
+    last_name: profile.lastName.trim(),
+    age: Number(profile.age),
+    gender: profile.gender,
+    city: profile.city,
+  });
+  if (insertError) {
     throw new Error(
       "Account created but profile setup failed. Try logging in, or contact support."
     );

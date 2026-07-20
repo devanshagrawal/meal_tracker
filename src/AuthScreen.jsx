@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { signInWithUsername, signUpWithUsername } from "./auth";
+import {
+  signInWithUsername,
+  signUpWithUsername,
+  GENDER_OPTIONS,
+  CITY_OPTIONS,
+} from "./auth";
 
 const C = {
   bg: "#f7f6f3",
@@ -13,12 +18,53 @@ const C = {
   border: "#e8e8e4",
 };
 
+const fieldStyle = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 8,
+  border: `1px solid ${C.border}`,
+  fontSize: 14,
+  outline: "none",
+  boxSizing: "border-box",
+  background: C.bg,
+  fontFamily: "inherit",
+};
+
+const EMPTY_PROFILE = {
+  firstName: "",
+  lastName: "",
+  age: "",
+  gender: "",
+  city: "",
+};
+
+function Field({ label, children }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 export default function AuthScreen({ onAuthed }) {
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  function updateProfile(field, value) {
+    setProfile((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function switchMode(next) {
+    setMode(next);
+    setError("");
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -28,7 +74,7 @@ export default function AuthScreen({ onAuthed }) {
       const result =
         mode === "login"
           ? await signInWithUsername(username, password)
-          : await signUpWithUsername(username, password);
+          : await signUpWithUsername(username, password, profile);
       onAuthed(result);
     } catch (err) {
       setError(err.message || "Something went wrong.");
@@ -36,6 +82,10 @@ export default function AuthScreen({ onAuthed }) {
       setBusy(false);
     }
   }
+
+  const signupIncomplete =
+    mode === "signup" &&
+    (!profile.firstName || !profile.lastName || !profile.age || !profile.gender || !profile.city);
 
   return (
     <div
@@ -77,47 +127,101 @@ export default function AuthScreen({ onAuthed }) {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
-            Username
-          </label>
-          <input
-            autoFocus
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="e.g. devansh"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              fontSize: 14,
-              outline: "none",
-              boxSizing: "border-box",
-              marginBottom: 14,
-              background: C.bg,
-            }}
-          />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
+              Username
+            </label>
+            <input
+              autoFocus
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="e.g. devansh"
+              style={fieldStyle}
+            />
+          </div>
 
-          <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
-            Password
-          </label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              fontSize: 14,
-              outline: "none",
-              boxSizing: "border-box",
-              marginBottom: 16,
-              background: C.bg,
-            }}
-          />
+          <div style={{ marginBottom: mode === "signup" ? 14 : 16 }}>
+            <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
+              style={fieldStyle}
+            />
+          </div>
+
+          {mode === "signup" && (
+            <>
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <Field label="First name">
+                  <input
+                    value={profile.firstName}
+                    onChange={(e) => updateProfile("firstName", e.target.value)}
+                    style={fieldStyle}
+                  />
+                </Field>
+                <Field label="Last name">
+                  <input
+                    value={profile.lastName}
+                    onChange={(e) => updateProfile("lastName", e.target.value)}
+                    style={fieldStyle}
+                  />
+                </Field>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <Field label="Age">
+                  <input
+                    type="number"
+                    min="1"
+                    max="119"
+                    value={profile.age}
+                    onChange={(e) => updateProfile("age", e.target.value)}
+                    style={fieldStyle}
+                  />
+                </Field>
+                <Field label="Gender">
+                  <select
+                    value={profile.gender}
+                    onChange={(e) => updateProfile("gender", e.target.value)}
+                    style={fieldStyle}
+                  >
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {GENDER_OPTIONS.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
+                  City
+                </label>
+                <select
+                  value={profile.city}
+                  onChange={(e) => updateProfile("city", e.target.value)}
+                  style={fieldStyle}
+                >
+                  <option value="" disabled>
+                    Select
+                  </option>
+                  {CITY_OPTIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
           {error && (
             <div
@@ -136,7 +240,7 @@ export default function AuthScreen({ onAuthed }) {
 
           <button
             type="submit"
-            disabled={busy || !username || !password}
+            disabled={busy || !username || !password || signupIncomplete}
             style={{
               width: "100%",
               padding: "11px",
@@ -158,10 +262,7 @@ export default function AuthScreen({ onAuthed }) {
             <>
               No account yet?{" "}
               <button
-                onClick={() => {
-                  setMode("signup");
-                  setError("");
-                }}
+                onClick={() => switchMode("signup")}
                 style={{
                   background: "none",
                   border: "none",
@@ -179,10 +280,7 @@ export default function AuthScreen({ onAuthed }) {
             <>
               Already have an account?{" "}
               <button
-                onClick={() => {
-                  setMode("login");
-                  setError("");
-                }}
+                onClick={() => switchMode("login")}
                 style={{
                   background: "none",
                   border: "none",
