@@ -54,6 +54,9 @@ const MEAL_OPTIONS = {
   dinner: uniqueMealOptions("dinner"),
 };
 
+const OTHER_VALUE = "__other__";
+const SKIPPED_VALUE = "__skipped__";
+
 const AVOID_KEYWORDS = [
   "wheat", "chapati", "roti", "naan", "paratha", "maida", "bread", "pasta", "rice krispie",
   "sugar", "candy", "cake", "cookie", "pastry", "ice cream", "chocolate", "mithai", "gulab jamun", "jalebi", "barfi",
@@ -70,9 +73,16 @@ const MORNING_WATER_OPTIONS = ["Jeera water", "Cinnamon water", "Plain warm wate
 function dateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-function timeStr() {
+function nowTimeValue() {
   const n = new Date();
-  return n.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+  return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
+}
+function formatTimeValue(t) {
+  if (!t) return "";
+  const [h, m] = t.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 function dayLabel(d) {
   return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
@@ -94,15 +104,26 @@ function startOfWeekMonday(d) {
   date.setDate(date.getDate() + diff);
   return date;
 }
+function midnight(d) {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+function isMealLogged(m) {
+  if (!m.selection) return false;
+  if (m.selection === SKIPPED_VALUE) return true;
+  if (m.selection === OTHER_VALUE) return Boolean(m.otherTitle.trim()) && Boolean(m.time);
+  return Boolean(m.time);
+}
 
 const EMPTY_DAY = {
   morningWater: false,
   morningWaterType: "",
   morningNuts: false,
   meals: {
-    breakfast: { status: null, alt: "", time: "", mealName: null },
-    lunch: { status: null, alt: "", time: "", mealName: null },
-    dinner: { status: null, alt: "", time: "", mealName: null },
+    breakfast: { selection: null, otherTitle: "", otherDescription: "", time: "" },
+    lunch: { selection: null, otherTitle: "", otherDescription: "", time: "" },
+    dinner: { selection: null, otherTitle: "", otherDescription: "", time: "" },
   },
   extras: [],
   waterGlasses: 0,
@@ -155,20 +176,21 @@ const selectStyle = {
   marginBottom: 6,
 };
 
-// ── Components ──
-function Chip({ label, active, color, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "6px 12px", borderRadius: 8, border: `1.5px solid ${active ? color : C.border}`,
-        background: active ? (color === C.green ? C.greenSoft : color === C.yellow ? C.yellowSoft : C.redSoft) : C.card,
-        color: active ? color : C.sub, fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
-      }}
-    >{label}</button>
-  );
-}
+const inputStyle = {
+  width: "100%",
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: `1px solid ${C.border}`,
+  fontSize: 13,
+  outline: "none",
+  boxSizing: "border-box",
+  background: C.bg,
+  fontFamily: "inherit",
+};
 
+const CONFETTI = ["🎉", "✨", "🥳", "💪", "🎊"];
+
+// ── Components ──
 function WaterDot({ filled, onClick }) {
   return (
     <button
@@ -196,8 +218,14 @@ function Section({ title, subtitle, children, color }) {
   );
 }
 
+const STATUS_STYLE = {
+  done: { bg: C.green, icon: "✓" },
+  pending: { bg: C.red, icon: "!" },
+  partial: { bg: C.yellow, icon: "~" },
+};
+
 function WeekDot({ label, status, isSelected, onClick }) {
-  const bg = status === "full" ? C.green : status === "partial" ? C.yellow : status === "missed" ? C.red : "transparent";
+  const s = STATUS_STYLE[status];
   const border = isSelected ? C.accent : C.border;
   return (
     <button onClick={onClick} style={{
@@ -206,10 +234,10 @@ function WeekDot({ label, status, isSelected, onClick }) {
     }}>
       <div style={{
         width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-        border: `2px solid ${border}`, background: bg, color: status ? "#fff" : C.sub,
+        border: `2px solid ${border}`, background: s ? s.bg : "transparent", color: s ? "#fff" : C.sub,
         fontSize: 10, fontWeight: 700, boxShadow: isSelected ? `0 0 0 2px ${C.accentSoft}` : "none",
       }}>
-        {status === "full" ? "✓" : status === "partial" ? "~" : status === "missed" ? "✗" : "·"}
+        {s ? s.icon : "·"}
       </div>
       <span style={{ fontSize: 10, color: isSelected ? C.accent : C.sub, fontWeight: isSelected ? 700 : 400 }}>{label}</span>
     </button>
@@ -224,8 +252,10 @@ export default function MealTracker() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [extraInput, setExtraInput] = useState("");
+  const [extraTime, setExtraTime] = useState("");
   const [showExtraInput, setShowExtraInput] = useState(false);
   const [weekData, setWeekData] = useState({});
+  const [showCelebration, setShowCelebration] = useState(false);
 
   const key = dateKey(selectedDate);
   const dayOfWeek = selectedDate.getDay();
@@ -236,6 +266,7 @@ export default function MealTracker() {
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const thisWeekStart = startOfWeekMonday(today);
   const canGoNextWeek = addDays(weekStart, 7) <= thisWeekStart;
+  const todayMidnight = midnight(today);
 
   // Load selected day
   useEffect(() => {
@@ -286,20 +317,44 @@ export default function MealTracker() {
     return <div style={{ padding: 40, textAlign: "center", color: C.sub, fontFamily: "Inter, sans-serif" }}>Loading...</div>;
   }
 
-  function getDayStatus(dayData) {
+  function getDayStatus(dayData, date) {
+    if (dayData && dayData.submitted) return "done";
+    if (date < todayMidnight) return "pending";
+    if (date > todayMidnight) return null;
     if (!dayData) return null;
-    const m = dayData.meals;
-    const statuses = [m.breakfast.status, m.lunch.status, m.dinner.status];
-    const logged = statuses.filter(Boolean).length;
-    if (logged === 0) return null;
-    if (logged === 3 && statuses.every((s) => s === "followed")) return "full";
-    if (statuses.some((s) => s === "skipped")) return "missed";
-    return "partial";
+    const anyLogged = ["breakfast", "lunch", "dinner"].some((m) => isMealLogged(dayData.meals[m]));
+    return anyLogged ? "partial" : null;
+  }
+
+  function selectMeal(meal, value) {
+    update((d) => {
+      d.meals[meal].selection = value;
+      if (value !== SKIPPED_VALUE && !d.meals[meal].time) {
+        d.meals[meal].time = nowTimeValue();
+      }
+      if (value !== OTHER_VALUE) {
+        d.meals[meal].otherTitle = "";
+        d.meals[meal].otherDescription = "";
+      }
+    });
+  }
+
+  function addExtra() {
+    if (!extraInput.trim() || !extraTime) return;
+    update((d) => { d.extras.push({ text: extraInput.trim(), time: extraTime }); });
+    setExtraInput("");
+    setShowExtraInput(false);
+  }
+
+  function handleSubmitDay() {
+    forceUpdate((d) => { d.submitted = true; });
+    setShowCelebration(true);
+    setTimeout(() => setShowCelebration(false), 2400);
   }
 
   const waterPct = Math.min(100, Math.round((data.waterGlasses / 12) * 100));
   const locked = data.submitted;
-  const allMealsLogged = ["breakfast", "lunch", "dinner"].every((m) => data.meals[m].status);
+  const allMealsLogged = ["breakfast", "lunch", "dinner"].every((m) => isMealLogged(data.meals[m]));
   const lockedWrapperStyle = {
     opacity: locked ? 0.55 : 1,
     pointerEvents: locked ? "none" : "auto",
@@ -364,87 +419,75 @@ export default function MealTracker() {
             const planned = plan[meal];
             const mealData = data.meals[meal];
             const options = MEAL_OPTIONS[meal];
-            const selectedName = mealData.mealName || planned.name;
-            const selectedMeal = options.find((o) => o.name === selectedName) || planned;
             const timeLabel = meal === "breakfast" ? "7:30 – 9:30 AM" : meal === "lunch" ? "1:00 – 2:30 PM" : "8:00 – 9:30 PM";
             const mealColor = meal === "breakfast" ? C.blue : meal === "lunch" ? C.green : C.accent;
+            const selectedDish = options.find((o) => o.name === mealData.selection);
             return (
               <Section key={meal} title={meal.charAt(0).toUpperCase() + meal.slice(1)} subtitle={timeLabel} color={mealColor}>
-                {/* Meal picker */}
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>Planned: {planned.name}</div>
+
+                {/* What did you have */}
                 <select
-                  value={selectedName}
-                  onChange={(e) => update((d) => { d.meals[meal].mealName = e.target.value; })}
+                  value={mealData.selection || ""}
+                  onChange={(e) => selectMeal(meal, e.target.value)}
                   style={selectStyle}
                 >
+                  <option value="" disabled>Select what you had</option>
                   {options.map((o) => (
                     <option key={o.name} value={o.name}>{o.name}</option>
                   ))}
+                  <option value={OTHER_VALUE}>↔ Ate something else</option>
+                  <option value={SKIPPED_VALUE}>✗ Skipped</option>
                 </select>
-                <div style={{ background: C.bg, borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: `1px dashed ${C.border}` }}>
-                  <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5 }}>{selectedMeal.items}</div>
-                </div>
-                {/* Status chips */}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <Chip label="✓ Followed plan" active={mealData.status === "followed"} color={C.green}
-                    onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "followed" ? null : "followed"; d.meals[meal].time = timeStr(); d.meals[meal].alt = ""; })} />
-                  <Chip label="↔ Ate something else" active={mealData.status === "other"} color={C.yellow}
-                    onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "other" ? null : "other"; d.meals[meal].time = timeStr(); })} />
-                  <Chip label="✗ Skipped" active={mealData.status === "skipped"} color={C.red}
-                    onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "skipped" ? null : "skipped"; d.meals[meal].time = timeStr(); d.meals[meal].alt = ""; })} />
-                </div>
-                {/* Alt input */}
-                {mealData.status === "other" && (
-                  <input
-                    placeholder="What did you eat instead?"
-                    value={mealData.alt}
-                    onChange={(e) => update((d) => { d.meals[meal].alt = e.target.value; })}
-                    style={{
-                      marginTop: 8, width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
-                      fontSize: 13, outline: "none", boxSizing: "border-box", background: C.bg,
-                    }}
-                  />
-                )}
-                {mealData.alt && isAvoidItem(mealData.alt) && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: C.red, display: "flex", alignItems: "center", gap: 4 }}>
-                    ⚠️ This may be on your Avoid List
+
+                {selectedDish && (
+                  <div style={{ background: C.bg, borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: `1px dashed ${C.border}` }}>
+                    <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5 }}>{selectedDish.items}</div>
                   </div>
                 )}
-                {mealData.time && mealData.status && (
-                  <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>Logged at {mealData.time}</div>
+
+                {mealData.selection === OTHER_VALUE && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+                    <input
+                      placeholder="Title — e.g. Sandwich"
+                      value={mealData.otherTitle}
+                      onChange={(e) => update((d) => { d.meals[meal].otherTitle = e.target.value; })}
+                      style={inputStyle}
+                    />
+                    <textarea
+                      placeholder="Description — what was in it, how much, etc."
+                      value={mealData.otherDescription}
+                      onChange={(e) => update((d) => { d.meals[meal].otherDescription = e.target.value; })}
+                      rows={2}
+                      style={{ ...inputStyle, resize: "vertical" }}
+                    />
+                    {isAvoidItem(`${mealData.otherTitle} ${mealData.otherDescription}`) && (
+                      <div style={{ fontSize: 11, color: C.red, display: "flex", alignItems: "center", gap: 4 }}>
+                        ⚠️ This may be on your Avoid List
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {mealData.selection && mealData.selection !== SKIPPED_VALUE && (
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, color: C.sub, marginBottom: 4 }}>What time did you eat?</label>
+                    <input
+                      type="time"
+                      value={mealData.time}
+                      onChange={(e) => update((d) => { d.meals[meal].time = e.target.value; })}
+                      style={{ ...inputStyle, width: "auto" }}
+                    />
+                  </div>
+                )}
+
+                {mealData.selection === SKIPPED_VALUE && (
+                  <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Marked as skipped</div>
                 )}
               </Section>
             );
           })}
-        </div>
 
-        {/* ── Submit / Locked banner (always interactive) ── */}
-        {locked ? (
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 12,
-            padding: "12px 16px", marginBottom: 12,
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>✅ Day submitted — logging locked</div>
-            <button onClick={() => forceUpdate((d) => { d.submitted = false; })}
-              style={{ background: "none", border: `1.5px solid ${C.green}`, color: C.green, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-              Edit
-            </button>
-          </div>
-        ) : (
-          <button
-            disabled={!allMealsLogged}
-            onClick={() => forceUpdate((d) => { d.submitted = true; })}
-            style={{
-              width: "100%", padding: "12px", borderRadius: 12, border: "none", marginBottom: 12,
-              background: allMealsLogged ? C.accent : C.border, color: allMealsLogged ? "#fff" : C.sub,
-              fontSize: 14, fontWeight: 700, cursor: allMealsLogged ? "pointer" : "default",
-            }}
-          >
-            {allMealsLogged ? "Submit Day" : "Log all 3 meals to submit"}
-          </button>
-        )}
-
-        <div style={lockedWrapperStyle}>
           {/* ── Extras / Snacks ── */}
           <Section title="Extras & Snacks" subtitle="Anything eaten outside the 3 meals" color="#8b5cf6">
             {data.extras.length > 0 && (
@@ -457,7 +500,7 @@ export default function MealTracker() {
                   }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, color: C.text }}>{ex.text}</div>
-                      <div style={{ fontSize: 10, color: C.sub }}>{ex.time}</div>
+                      <div style={{ fontSize: 10, color: C.sub }}>{formatTimeValue(ex.time)}</div>
                       {isAvoidItem(ex.text) && (
                         <div style={{ fontSize: 10, color: C.red, marginTop: 2 }}>⚠️ On your Avoid List</div>
                       )}
@@ -469,38 +512,33 @@ export default function MealTracker() {
               </div>
             )}
             {showExtraInput ? (
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <input
                   autoFocus
                   placeholder="e.g. 2 biscuits, chai with sugar..."
                   value={extraInput}
                   onChange={(e) => setExtraInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && extraInput.trim()) {
-                      update((d) => { d.extras.push({ text: extraInput.trim(), time: timeStr() }); });
-                      setExtraInput("");
-                      setShowExtraInput(false);
-                    }
-                  }}
-                  style={{
-                    flex: 1, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
-                    fontSize: 13, outline: "none", background: C.bg,
-                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter") addExtra(); }}
+                  style={inputStyle}
                 />
-                <button onClick={() => {
-                  if (extraInput.trim()) {
-                    update((d) => { d.extras.push({ text: extraInput.trim(), time: timeStr() }); });
-                    setExtraInput("");
-                  }
-                  setShowExtraInput(false);
-                }}
-                  style={{
-                    padding: "8px 14px", borderRadius: 8, border: "none", background: C.accent,
-                    color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                  }}>Add</button>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    type="time"
+                    value={extraTime}
+                    onChange={(e) => setExtraTime(e.target.value)}
+                    style={{ ...inputStyle, flex: 1 }}
+                  />
+                  <button onClick={addExtra} disabled={!extraInput.trim() || !extraTime}
+                    style={{
+                      padding: "8px 14px", borderRadius: 8, border: "none",
+                      background: extraInput.trim() && extraTime ? C.accent : C.border,
+                      color: extraInput.trim() && extraTime ? "#fff" : C.sub,
+                      fontSize: 13, fontWeight: 600, cursor: extraInput.trim() && extraTime ? "pointer" : "default",
+                    }}>Add</button>
+                </div>
               </div>
             ) : (
-              <button onClick={() => setShowExtraInput(true)}
+              <button onClick={() => { setShowExtraInput(true); setExtraTime(nowTimeValue()); }}
                 style={{
                   width: "100%", padding: "10px", borderRadius: 8, border: `1.5px dashed ${C.border}`,
                   background: "transparent", cursor: "pointer", fontSize: 13, color: C.sub,
@@ -540,6 +578,33 @@ export default function MealTracker() {
             </div>
           </Section>
         </div>
+
+        {/* ── Submit / Locked banner (always interactive, at the end) ── */}
+        {locked ? (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 12,
+            padding: "12px 16px", marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>✅ Day submitted — logging locked</div>
+            <button onClick={() => forceUpdate((d) => { d.submitted = false; })}
+              style={{ background: "none", border: `1.5px solid ${C.green}`, color: C.green, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              Edit
+            </button>
+          </div>
+        ) : (
+          <button
+            disabled={!allMealsLogged}
+            onClick={handleSubmitDay}
+            style={{
+              width: "100%", padding: "12px", borderRadius: 12, border: "none", marginBottom: 12,
+              background: allMealsLogged ? C.accent : C.border, color: allMealsLogged ? "#fff" : C.sub,
+              fontSize: 14, fontWeight: 700, cursor: allMealsLogged ? "pointer" : "default",
+            }}
+          >
+            {allMealsLogged ? "Submit Day" : "Log all 3 meals to submit"}
+          </button>
+        )}
       </div>
 
       {/* ── Weekly Strip (Monday → Sunday) ── */}
@@ -565,7 +630,7 @@ export default function MealTracker() {
         <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center" }}>
           {weekDays.map((d) => {
             const k = dateKey(d);
-            const status = getDayStatus(weekData[k] || (k === key ? data : null));
+            const status = getDayStatus(weekData[k] || (k === key ? data : null), d);
             const isSelected = k === key;
             return (
               <WeekDot
@@ -579,6 +644,27 @@ export default function MealTracker() {
           })}
         </div>
       </div>
+
+      {/* ── Submission celebration ── */}
+      {showCelebration && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+          <style>{`
+            @keyframes popIn { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+            @keyframes confettiFall { from { transform: translateY(0) rotate(0deg); opacity: 1; } to { transform: translateY(110vh) rotate(180deg); opacity: 0; } }
+          `}</style>
+          {Array.from({ length: 10 }).map((_, i) => (
+            <span key={i} style={{
+              position: "absolute", left: `${i * 10 + 5}%`, top: -30, fontSize: 22,
+              animation: `confettiFall 1.8s ease-in ${i * 0.06}s forwards`,
+            }}>{CONFETTI[i % CONFETTI.length]}</span>
+          ))}
+          <div style={{ background: C.card, borderRadius: 16, padding: "28px 32px", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", animation: "popIn 0.35s ease" }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>Day logged!</div>
+            <div style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>Nice work staying on track today.</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
