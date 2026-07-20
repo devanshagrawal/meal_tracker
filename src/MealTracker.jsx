@@ -39,6 +39,21 @@ const MEAL_PLAN = {
   },
 };
 
+// Unique dish options per meal type, for the "pick what you're having" dropdown.
+function uniqueMealOptions(mealType) {
+  const seen = new Map();
+  Object.values(MEAL_PLAN).forEach((day) => {
+    const m = day[mealType];
+    if (!seen.has(m.name)) seen.set(m.name, m);
+  });
+  return Array.from(seen.values());
+}
+const MEAL_OPTIONS = {
+  breakfast: uniqueMealOptions("breakfast"),
+  lunch: uniqueMealOptions("lunch"),
+  dinner: uniqueMealOptions("dinner"),
+};
+
 const AVOID_KEYWORDS = [
   "wheat", "chapati", "roti", "naan", "paratha", "maida", "bread", "pasta", "rice krispie",
   "sugar", "candy", "cake", "cookie", "pastry", "ice cream", "chocolate", "mithai", "gulab jamun", "jalebi", "barfi",
@@ -66,18 +81,32 @@ function isAvoidItem(text) {
   const t = text.toLowerCase();
   return AVOID_KEYWORDS.some((k) => t.includes(k));
 }
+function addDays(d, n) {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + n);
+  return copy;
+}
+function startOfWeekMonday(d) {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  const day = date.getDay(); // 0 Sun ... 6 Sat
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+}
 
 const EMPTY_DAY = {
   morningWater: false,
   morningWaterType: "",
   morningNuts: false,
   meals: {
-    breakfast: { status: null, alt: "", time: "" },
-    lunch: { status: null, alt: "", time: "" },
-    dinner: { status: null, alt: "", time: "" },
+    breakfast: { status: null, alt: "", time: "", mealName: null },
+    lunch: { status: null, alt: "", time: "", mealName: null },
+    dinner: { status: null, alt: "", time: "", mealName: null },
   },
   extras: [],
   waterGlasses: 0,
+  submitted: false,
 };
 
 // ── Storage ──
@@ -110,6 +139,20 @@ const C = {
   blueSoft: "#edf4ff",
   water: "#3b9dd6",
   waterSoft: "#e8f5fc",
+};
+
+const selectStyle = {
+  width: "100%",
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: `1px solid ${C.border}`,
+  fontSize: 13,
+  fontWeight: 700,
+  outline: "none",
+  boxSizing: "border-box",
+  background: C.card,
+  color: C.text,
+  marginBottom: 6,
 };
 
 // ── Components ──
@@ -153,9 +196,9 @@ function Section({ title, subtitle, children, color }) {
   );
 }
 
-function WeekDot({ label, status, isToday, onClick }) {
+function WeekDot({ label, status, isSelected, onClick }) {
   const bg = status === "full" ? C.green : status === "partial" ? C.yellow : status === "missed" ? C.red : "transparent";
-  const border = isToday ? C.accent : C.border;
+  const border = isSelected ? C.accent : C.border;
   return (
     <button onClick={onClick} style={{
       display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "none",
@@ -164,11 +207,11 @@ function WeekDot({ label, status, isToday, onClick }) {
       <div style={{
         width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
         border: `2px solid ${border}`, background: bg, color: status ? "#fff" : C.sub,
-        fontSize: 10, fontWeight: 700, boxShadow: isToday ? `0 0 0 2px ${C.accentSoft}` : "none",
+        fontSize: 10, fontWeight: 700, boxShadow: isSelected ? `0 0 0 2px ${C.accentSoft}` : "none",
       }}>
         {status === "full" ? "✓" : status === "partial" ? "~" : status === "missed" ? "✗" : "·"}
       </div>
-      <span style={{ fontSize: 10, color: isToday ? C.accent : C.sub, fontWeight: isToday ? 700 : 400 }}>{label}</span>
+      <span style={{ fontSize: 10, color: isSelected ? C.accent : C.sub, fontWeight: isSelected ? 700 : 400 }}>{label}</span>
     </button>
   );
 }
@@ -177,6 +220,7 @@ function WeekDot({ label, status, isToday, onClick }) {
 export default function MealTracker() {
   const [today] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [weekAnchor, setWeekAnchor] = useState(new Date());
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [extraInput, setExtraInput] = useState("");
@@ -187,6 +231,11 @@ export default function MealTracker() {
   const dayOfWeek = selectedDate.getDay();
   const plan = MEAL_PLAN[dayOfWeek];
   const isToday = dateKey(today) === key;
+
+  const weekStart = startOfWeekMonday(weekAnchor);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const thisWeekStart = startOfWeekMonday(today);
+  const canGoNextWeek = addDays(weekStart, 7) <= thisWeekStart;
 
   // Load selected day
   useEffect(() => {
@@ -201,9 +250,7 @@ export default function MealTracker() {
   useEffect(() => {
     async function loadWeek() {
       const wd = {};
-      for (let i = -6; i <= 0; i++) {
-        const d = new Date(today);
-        d.setDate(d.getDate() + i);
+      for (const d of weekDays) {
         const k = dateKey(d);
         const dayData = await loadDay(k);
         if (dayData) wd[k] = dayData;
@@ -211,9 +258,22 @@ export default function MealTracker() {
       setWeekData(wd);
     }
     loadWeek();
-  }, [data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateKey(weekStart), data]);
 
+  // Normal update: no-op while the day is locked (submitted).
   const update = useCallback((fn) => {
+    setData((prev) => {
+      if (prev.submitted) return prev;
+      const next = JSON.parse(JSON.stringify(prev));
+      fn(next);
+      saveDay(key, next);
+      return next;
+    });
+  }, [key]);
+
+  // Bypasses the lock — only for the submit/unlock action itself.
+  const forceUpdate = useCallback((fn) => {
     setData((prev) => {
       const next = JSON.parse(JSON.stringify(prev));
       fn(next);
@@ -237,17 +297,17 @@ export default function MealTracker() {
     return "partial";
   }
 
-  const weekDays = [];
-  for (let i = -6; i <= 0; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
-    weekDays.push(d);
-  }
-
   const waterPct = Math.min(100, Math.round((data.waterGlasses / 12) * 100));
+  const locked = data.submitted;
+  const allMealsLogged = ["breakfast", "lunch", "dinner"].every((m) => data.meals[m].status);
+  const lockedWrapperStyle = {
+    opacity: locked ? 0.55 : 1,
+    pointerEvents: locked ? "none" : "auto",
+    transition: "opacity 0.2s",
+  };
 
   return (
-    <div style={{ fontFamily: "'Inter', -apple-system, system-ui, sans-serif", background: C.bg, minHeight: "100vh", paddingBottom: 100 }}>
+    <div style={{ fontFamily: "'Inter', -apple-system, system-ui, sans-serif", background: C.bg, minHeight: "100vh", paddingBottom: 120 }}>
       {/* Header */}
       <div style={{ background: `linear-gradient(135deg, ${C.accent} 0%, #b83a1f 100%)`, padding: "20px 18px 16px", color: "#fff" }}>
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", opacity: 0.8, textTransform: "uppercase" }}>FitnessTalks · 37 Day Challenge</div>
@@ -259,207 +319,265 @@ export default function MealTracker() {
 
       <div style={{ padding: "12px 14px 0" }}>
 
-        {/* ── Morning Routine ── */}
-        <Section title="Morning Routine" color={C.yellow}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {/* Warm water */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button onClick={() => update((d) => { d.morningWater = !d.morningWater; if (!d.morningWater) d.morningWaterType = ""; })}
-                style={{
-                  width: 22, height: 22, borderRadius: 6, border: `2px solid ${data.morningWater ? C.green : C.border}`,
-                  background: data.morningWater ? C.green : "transparent", cursor: "pointer", display: "flex",
-                  alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, flexShrink: 0,
-                }}>{data.morningWater ? "✓" : ""}</button>
-              <span style={{ fontSize: 13, color: C.text }}>500ml warm water</span>
+        <div style={lockedWrapperStyle}>
+          {/* ── Morning Routine ── */}
+          <Section title="Morning Routine" color={C.yellow}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Warm water */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => update((d) => { d.morningWater = !d.morningWater; if (!d.morningWater) d.morningWaterType = ""; })}
+                  style={{
+                    width: 22, height: 22, borderRadius: 6, border: `2px solid ${data.morningWater ? C.green : C.border}`,
+                    background: data.morningWater ? C.green : "transparent", cursor: "pointer", display: "flex",
+                    alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, flexShrink: 0,
+                  }}>{data.morningWater ? "✓" : ""}</button>
+                <span style={{ fontSize: 13, color: C.text }}>500ml warm water</span>
+              </div>
+              {data.morningWater && (
+                <div style={{ display: "flex", gap: 6, paddingLeft: 32 }}>
+                  {MORNING_WATER_OPTIONS.map((opt) => (
+                    <button key={opt} onClick={() => update((d) => { d.morningWaterType = opt; })}
+                      style={{
+                        padding: "4px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
+                        border: `1px solid ${data.morningWaterType === opt ? C.yellow : C.border}`,
+                        background: data.morningWaterType === opt ? C.yellowSoft : C.card,
+                        color: data.morningWaterType === opt ? C.yellow : C.sub, fontWeight: data.morningWaterType === opt ? 600 : 400,
+                      }}>{opt}</button>
+                  ))}
+                </div>
+              )}
+              {/* Nuts */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => update((d) => { d.morningNuts = !d.morningNuts; })}
+                  style={{
+                    width: 22, height: 22, borderRadius: 6, border: `2px solid ${data.morningNuts ? C.green : C.border}`,
+                    background: data.morningNuts ? C.green : "transparent", cursor: "pointer", display: "flex",
+                    alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, flexShrink: 0,
+                  }}>{data.morningNuts ? "✓" : ""}</button>
+                <span style={{ fontSize: 13, color: C.text }}>10 almonds + 2 walnuts (soaked)</span>
+              </div>
             </div>
-            {data.morningWater && (
-              <div style={{ display: "flex", gap: 6, paddingLeft: 32 }}>
-                {MORNING_WATER_OPTIONS.map((opt) => (
-                  <button key={opt} onClick={() => update((d) => { d.morningWaterType = opt; })}
+          </Section>
+
+          {/* ── Meals ── */}
+          {["breakfast", "lunch", "dinner"].map((meal) => {
+            const planned = plan[meal];
+            const mealData = data.meals[meal];
+            const options = MEAL_OPTIONS[meal];
+            const selectedName = mealData.mealName || planned.name;
+            const selectedMeal = options.find((o) => o.name === selectedName) || planned;
+            const timeLabel = meal === "breakfast" ? "7:30 – 9:30 AM" : meal === "lunch" ? "1:00 – 2:30 PM" : "8:00 – 9:30 PM";
+            const mealColor = meal === "breakfast" ? C.blue : meal === "lunch" ? C.green : C.accent;
+            return (
+              <Section key={meal} title={meal.charAt(0).toUpperCase() + meal.slice(1)} subtitle={timeLabel} color={mealColor}>
+                {/* Meal picker */}
+                <select
+                  value={selectedName}
+                  onChange={(e) => update((d) => { d.meals[meal].mealName = e.target.value; })}
+                  style={selectStyle}
+                >
+                  {options.map((o) => (
+                    <option key={o.name} value={o.name}>{o.name}</option>
+                  ))}
+                </select>
+                <div style={{ background: C.bg, borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: `1px dashed ${C.border}` }}>
+                  <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5 }}>{selectedMeal.items}</div>
+                </div>
+                {/* Status chips */}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <Chip label="✓ Followed plan" active={mealData.status === "followed"} color={C.green}
+                    onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "followed" ? null : "followed"; d.meals[meal].time = timeStr(); d.meals[meal].alt = ""; })} />
+                  <Chip label="↔ Ate something else" active={mealData.status === "other"} color={C.yellow}
+                    onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "other" ? null : "other"; d.meals[meal].time = timeStr(); })} />
+                  <Chip label="✗ Skipped" active={mealData.status === "skipped"} color={C.red}
+                    onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "skipped" ? null : "skipped"; d.meals[meal].time = timeStr(); d.meals[meal].alt = ""; })} />
+                </div>
+                {/* Alt input */}
+                {mealData.status === "other" && (
+                  <input
+                    placeholder="What did you eat instead?"
+                    value={mealData.alt}
+                    onChange={(e) => update((d) => { d.meals[meal].alt = e.target.value; })}
                     style={{
-                      padding: "4px 10px", borderRadius: 6, fontSize: 11, cursor: "pointer",
-                      border: `1px solid ${data.morningWaterType === opt ? C.yellow : C.border}`,
-                      background: data.morningWaterType === opt ? C.yellowSoft : C.card,
-                      color: data.morningWaterType === opt ? C.yellow : C.sub, fontWeight: data.morningWaterType === opt ? 600 : 400,
-                    }}>{opt}</button>
+                      marginTop: 8, width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+                      fontSize: 13, outline: "none", boxSizing: "border-box", background: C.bg,
+                    }}
+                  />
+                )}
+                {mealData.alt && isAvoidItem(mealData.alt) && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: C.red, display: "flex", alignItems: "center", gap: 4 }}>
+                    ⚠️ This may be on your Avoid List
+                  </div>
+                )}
+                {mealData.time && mealData.status && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>Logged at {mealData.time}</div>
+                )}
+              </Section>
+            );
+          })}
+        </div>
+
+        {/* ── Submit / Locked banner (always interactive) ── */}
+        {locked ? (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 12,
+            padding: "12px 16px", marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>✅ Day submitted — logging locked</div>
+            <button onClick={() => forceUpdate((d) => { d.submitted = false; })}
+              style={{ background: "none", border: `1.5px solid ${C.green}`, color: C.green, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              Edit
+            </button>
+          </div>
+        ) : (
+          <button
+            disabled={!allMealsLogged}
+            onClick={() => forceUpdate((d) => { d.submitted = true; })}
+            style={{
+              width: "100%", padding: "12px", borderRadius: 12, border: "none", marginBottom: 12,
+              background: allMealsLogged ? C.accent : C.border, color: allMealsLogged ? "#fff" : C.sub,
+              fontSize: 14, fontWeight: 700, cursor: allMealsLogged ? "pointer" : "default",
+            }}
+          >
+            {allMealsLogged ? "Submit Day" : "Log all 3 meals to submit"}
+          </button>
+        )}
+
+        <div style={lockedWrapperStyle}>
+          {/* ── Extras / Snacks ── */}
+          <Section title="Extras & Snacks" subtitle="Anything eaten outside the 3 meals" color="#8b5cf6">
+            {data.extras.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                {data.extras.map((ex, i) => (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                    background: isAvoidItem(ex.text) ? C.redSoft : C.bg, borderRadius: 8,
+                    border: `1px solid ${isAvoidItem(ex.text) ? "#f0c0c0" : C.border}`,
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, color: C.text }}>{ex.text}</div>
+                      <div style={{ fontSize: 10, color: C.sub }}>{ex.time}</div>
+                      {isAvoidItem(ex.text) && (
+                        <div style={{ fontSize: 10, color: C.red, marginTop: 2 }}>⚠️ On your Avoid List</div>
+                      )}
+                    </div>
+                    <button onClick={() => update((d) => { d.extras.splice(i, 1); })}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: C.sub, padding: 4 }}>×</button>
+                  </div>
                 ))}
               </div>
             )}
-            {/* Nuts */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <button onClick={() => update((d) => { d.morningNuts = !d.morningNuts; })}
-                style={{
-                  width: 22, height: 22, borderRadius: 6, border: `2px solid ${data.morningNuts ? C.green : C.border}`,
-                  background: data.morningNuts ? C.green : "transparent", cursor: "pointer", display: "flex",
-                  alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, flexShrink: 0,
-                }}>{data.morningNuts ? "✓" : ""}</button>
-              <span style={{ fontSize: 13, color: C.text }}>10 almonds + 2 walnuts (soaked)</span>
-            </div>
-          </div>
-        </Section>
-
-        {/* ── Meals ── */}
-        {["breakfast", "lunch", "dinner"].map((meal) => {
-          const planned = plan[meal];
-          const mealData = data.meals[meal];
-          const timeLabel = meal === "breakfast" ? "7:30 – 9:30 AM" : meal === "lunch" ? "1:00 – 2:30 PM" : "8:00 – 9:30 PM";
-          const mealColor = meal === "breakfast" ? C.blue : meal === "lunch" ? C.green : C.accent;
-          return (
-            <Section key={meal} title={meal.charAt(0).toUpperCase() + meal.slice(1)} subtitle={timeLabel} color={mealColor}>
-              {/* Planned meal reference */}
-              <div style={{ background: C.bg, borderRadius: 8, padding: "10px 12px", marginBottom: 10, border: `1px dashed ${C.border}` }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 2 }}>📋 {planned.name}</div>
-                <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5 }}>{planned.items}</div>
-              </div>
-              {/* Status chips */}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <Chip label="✓ Followed plan" active={mealData.status === "followed"} color={C.green}
-                  onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "followed" ? null : "followed"; d.meals[meal].time = timeStr(); d.meals[meal].alt = ""; })} />
-                <Chip label="↔ Ate something else" active={mealData.status === "other"} color={C.yellow}
-                  onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "other" ? null : "other"; d.meals[meal].time = timeStr(); })} />
-                <Chip label="✗ Skipped" active={mealData.status === "skipped"} color={C.red}
-                  onClick={() => update((d) => { d.meals[meal].status = d.meals[meal].status === "skipped" ? null : "skipped"; d.meals[meal].time = timeStr(); d.meals[meal].alt = ""; })} />
-              </div>
-              {/* Alt input */}
-              {mealData.status === "other" && (
+            {showExtraInput ? (
+              <div style={{ display: "flex", gap: 6 }}>
                 <input
-                  placeholder="What did you eat instead?"
-                  value={mealData.alt}
-                  onChange={(e) => update((d) => { d.meals[meal].alt = e.target.value; })}
+                  autoFocus
+                  placeholder="e.g. 2 biscuits, chai with sugar..."
+                  value={extraInput}
+                  onChange={(e) => setExtraInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && extraInput.trim()) {
+                      update((d) => { d.extras.push({ text: extraInput.trim(), time: timeStr() }); });
+                      setExtraInput("");
+                      setShowExtraInput(false);
+                    }
+                  }}
                   style={{
-                    marginTop: 8, width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
-                    fontSize: 13, outline: "none", boxSizing: "border-box", background: C.bg,
+                    flex: 1, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
+                    fontSize: 13, outline: "none", background: C.bg,
                   }}
                 />
-              )}
-              {mealData.alt && isAvoidItem(mealData.alt) && (
-                <div style={{ marginTop: 6, fontSize: 11, color: C.red, display: "flex", alignItems: "center", gap: 4 }}>
-                  ⚠️ This may be on your Avoid List
-                </div>
-              )}
-              {mealData.time && mealData.status && (
-                <div style={{ marginTop: 6, fontSize: 11, color: C.sub }}>Logged at {mealData.time}</div>
-              )}
-            </Section>
-          );
-        })}
-
-        {/* ── Extras / Snacks ── */}
-        <Section title="Extras & Snacks" subtitle="Anything eaten outside the 3 meals" color="#8b5cf6">
-          {data.extras.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-              {data.extras.map((ex, i) => (
-                <div key={i} style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-                  background: isAvoidItem(ex.text) ? C.redSoft : C.bg, borderRadius: 8,
-                  border: `1px solid ${isAvoidItem(ex.text) ? "#f0c0c0" : C.border}`,
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, color: C.text }}>{ex.text}</div>
-                    <div style={{ fontSize: 10, color: C.sub }}>{ex.time}</div>
-                    {isAvoidItem(ex.text) && (
-                      <div style={{ fontSize: 10, color: C.red, marginTop: 2 }}>⚠️ On your Avoid List</div>
-                    )}
-                  </div>
-                  <button onClick={() => update((d) => { d.extras.splice(i, 1); })}
-                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: C.sub, padding: 4 }}>×</button>
-                </div>
-              ))}
-            </div>
-          )}
-          {showExtraInput ? (
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                autoFocus
-                placeholder="e.g. 2 biscuits, chai with sugar..."
-                value={extraInput}
-                onChange={(e) => setExtraInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && extraInput.trim()) {
+                <button onClick={() => {
+                  if (extraInput.trim()) {
                     update((d) => { d.extras.push({ text: extraInput.trim(), time: timeStr() }); });
                     setExtraInput("");
-                    setShowExtraInput(false);
                   }
+                  setShowExtraInput(false);
                 }}
+                  style={{
+                    padding: "8px 14px", borderRadius: 8, border: "none", background: C.accent,
+                    color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  }}>Add</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowExtraInput(true)}
                 style={{
-                  flex: 1, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`,
-                  fontSize: 13, outline: "none", background: C.bg,
-                }}
-              />
-              <button onClick={() => {
-                if (extraInput.trim()) {
-                  update((d) => { d.extras.push({ text: extraInput.trim(), time: timeStr() }); });
-                  setExtraInput("");
-                }
-                setShowExtraInput(false);
-              }}
-                style={{
-                  padding: "8px 14px", borderRadius: 8, border: "none", background: C.accent,
-                  color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                }}>Add</button>
-            </div>
-          ) : (
-            <button onClick={() => setShowExtraInput(true)}
-              style={{
-                width: "100%", padding: "10px", borderRadius: 8, border: `1.5px dashed ${C.border}`,
-                background: "transparent", cursor: "pointer", fontSize: 13, color: C.sub,
-              }}>+ Log extra food or snack</button>
-          )}
-        </Section>
+                  width: "100%", padding: "10px", borderRadius: 8, border: `1.5px dashed ${C.border}`,
+                  background: "transparent", cursor: "pointer", fontSize: 13, color: C.sub,
+                }}>+ Log extra food or snack</button>
+            )}
+          </Section>
 
-        {/* ── Water Tracker ── */}
-        <Section title={`Water — ${data.waterGlasses} / 12 glasses`} subtitle={`${(data.waterGlasses * 250 / 1000).toFixed(1)}L of 3L target`} color={C.water}>
-          {/* Progress bar */}
-          <div style={{ height: 8, borderRadius: 4, background: C.waterSoft, marginBottom: 12, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${waterPct}%`, background: C.water, borderRadius: 4, transition: "width 0.3s" }} />
-          </div>
-          {/* Dots grid */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 12 }}>
-            {Array.from({ length: 12 }, (_, i) => (
-              <WaterDot key={i} filled={i < data.waterGlasses} onClick={() => update((d) => {
-                d.waterGlasses = i < d.waterGlasses ? i : i + 1;
-              })} />
-            ))}
-          </div>
-          {/* Quick buttons */}
-          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            <button onClick={() => update((d) => { d.waterGlasses = Math.min(12, d.waterGlasses + 1); })}
-              style={{
-                padding: "8px 18px", borderRadius: 8, border: `1.5px solid ${C.water}`, background: C.waterSoft,
-                color: C.water, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>+ 1 glass (250ml)</button>
-            <button onClick={() => update((d) => { d.waterGlasses = Math.min(12, d.waterGlasses + 2); })}
-              style={{
-                padding: "8px 18px", borderRadius: 8, border: `1.5px solid ${C.water}`, background: C.waterSoft,
-                color: C.water, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              }}>+ 1 bottle (500ml)</button>
-          </div>
-          <div style={{ fontSize: 10, color: C.sub, textAlign: "center", marginTop: 8 }}>
-            Herbal tea, lemon water, coconut water (no sugar) count too
-          </div>
-        </Section>
+          {/* ── Water Tracker ── */}
+          <Section title={`Water — ${data.waterGlasses} / 12 glasses`} subtitle={`${(data.waterGlasses * 250 / 1000).toFixed(1)}L of 3L target`} color={C.water}>
+            {/* Progress bar */}
+            <div style={{ height: 8, borderRadius: 4, background: C.waterSoft, marginBottom: 12, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${waterPct}%`, background: C.water, borderRadius: 4, transition: "width 0.3s" }} />
+            </div>
+            {/* Dots grid */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 12 }}>
+              {Array.from({ length: 12 }, (_, i) => (
+                <WaterDot key={i} filled={i < data.waterGlasses} onClick={() => update((d) => {
+                  d.waterGlasses = i < d.waterGlasses ? i : i + 1;
+                })} />
+              ))}
+            </div>
+            {/* Quick buttons */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <button onClick={() => update((d) => { d.waterGlasses = Math.min(12, d.waterGlasses + 1); })}
+                style={{
+                  padding: "8px 18px", borderRadius: 8, border: `1.5px solid ${C.water}`, background: C.waterSoft,
+                  color: C.water, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>+ 1 glass (250ml)</button>
+              <button onClick={() => update((d) => { d.waterGlasses = Math.min(12, d.waterGlasses + 2); })}
+                style={{
+                  padding: "8px 18px", borderRadius: 8, border: `1.5px solid ${C.water}`, background: C.waterSoft,
+                  color: C.water, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                }}>+ 1 bottle (500ml)</button>
+            </div>
+            <div style={{ fontSize: 10, color: C.sub, textAlign: "center", marginTop: 8 }}>
+              Herbal tea, lemon water, coconut water (no sugar) count too
+            </div>
+          </Section>
+        </div>
       </div>
 
-      {/* ── Weekly Strip ── */}
+      {/* ── Weekly Strip (Monday → Sunday) ── */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0, background: C.card,
-        borderTop: `1px solid ${C.border}`, padding: "10px 14px 14px",
-        display: "flex", justifyContent: "space-around", alignItems: "center",
+        borderTop: `1px solid ${C.border}`, padding: "8px 10px 14px",
       }}>
-        {weekDays.map((d) => {
-          const k = dateKey(d);
-          const status = getDayStatus(weekData[k] || (k === key ? data : null));
-          const isSel = k === key;
-          return (
-            <WeekDot
-              key={k}
-              label={d.toLocaleDateString("en-IN", { weekday: "narrow" })}
-              status={status}
-              isToday={isSel}
-              onClick={() => setSelectedDate(new Date(d))}
-            />
-          );
-        })}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 6px", marginBottom: 6 }}>
+          <button onClick={() => setWeekAnchor((d) => addDays(d, -7))}
+            style={{ background: "none", border: "none", fontSize: 16, color: C.sub, cursor: "pointer", padding: "2px 8px" }}>
+            ‹
+          </button>
+          <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>
+            {weekDays[0].toLocaleDateString("en-IN", { day: "numeric", month: "short" })} – {weekDays[6].toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+          </span>
+          <button
+            onClick={() => canGoNextWeek && setWeekAnchor((d) => addDays(d, 7))}
+            disabled={!canGoNextWeek}
+            style={{ background: "none", border: "none", fontSize: 16, color: C.sub, cursor: canGoNextWeek ? "pointer" : "default", padding: "2px 8px", opacity: canGoNextWeek ? 1 : 0.3 }}>
+            ›
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center" }}>
+          {weekDays.map((d) => {
+            const k = dateKey(d);
+            const status = getDayStatus(weekData[k] || (k === key ? data : null));
+            const isSelected = k === key;
+            return (
+              <WeekDot
+                key={k}
+                label={d.toLocaleDateString("en-IN", { weekday: "narrow" })}
+                status={status}
+                isSelected={isSelected}
+                onClick={() => setSelectedDate(new Date(d))}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
