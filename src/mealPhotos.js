@@ -59,8 +59,11 @@ export async function deleteMealPhoto(path) {
   if (error) throw error;
 }
 
-export function mealPhotoUrl(path) {
+// `version` cache-busts the URL — the storage path is deterministic
+// (overwritten on re-upload), so without a changing query param the
+// browser would keep serving a stale cached copy after a replace.
+export function mealPhotoUrl(path, version) {
   if (!path) return null;
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+  return version ? `${data.publicUrl}?v=${version}` : data.publicUrl;
 }

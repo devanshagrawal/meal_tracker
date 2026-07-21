@@ -123,9 +123,9 @@ const EMPTY_DAY = {
   morningWaterType: "",
   morningNuts: false,
   meals: {
-    breakfast: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null },
-    lunch: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null },
-    dinner: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null },
+    breakfast: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null, photoVersion: null },
+    lunch: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null, photoVersion: null },
+    dinner: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null, photoVersion: null },
   },
   extras: [],
   waterGlasses: 0,
@@ -383,6 +383,7 @@ export default function MealTracker({ userId }) {
       }
       if (value === SKIPPED_VALUE) {
         d.meals[meal].photoPath = null;
+        d.meals[meal].photoVersion = null;
       }
     });
     if (value === SKIPPED_VALUE && previousPhotoPath) {
@@ -395,7 +396,7 @@ export default function MealTracker({ userId }) {
     setUploadingMeal(meal);
     try {
       const path = await uploadMealPhoto(userId, key, meal, file);
-      update((d) => { d.meals[meal].photoPath = path; });
+      update((d) => { d.meals[meal].photoPath = path; d.meals[meal].photoVersion = Date.now(); });
     } catch (e) {
       console.error(e);
     } finally {
@@ -405,7 +406,7 @@ export default function MealTracker({ userId }) {
 
   function handleRemovePhoto(meal) {
     const path = data.meals[meal].photoPath;
-    update((d) => { d.meals[meal].photoPath = null; });
+    update((d) => { d.meals[meal].photoPath = null; d.meals[meal].photoVersion = null; });
     if (path) deleteMealPhoto(path).catch((e) => console.error(e));
   }
 
@@ -561,7 +562,7 @@ export default function MealTracker({ userId }) {
                     {mealData.photoPath ? (
                       <div style={{ position: "relative", display: "inline-block" }}>
                         <img
-                          src={mealPhotoUrl(mealData.photoPath)}
+                          src={mealPhotoUrl(mealData.photoPath, mealData.photoVersion)}
                           alt={`${meal} photo`}
                           style={{ width: 96, height: 96, borderRadius: 8, objectFit: "cover", border: `1px solid ${C.border}`, display: "block" }}
                         />
@@ -573,17 +574,22 @@ export default function MealTracker({ userId }) {
                           }}
                         >×</button>
                       </div>
+                    ) : uploadingMeal === meal ? (
+                      <div style={{
+                        display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 8,
+                        border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub,
+                      }}>
+                        Uploading…
+                      </div>
                     ) : (
                       <label style={{
                         display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8,
                         border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub, cursor: "pointer",
                       }}>
-                        📷 {uploadingMeal === meal ? "Uploading…" : "Add photo"}
+                        📷 Add photo
                         <input
                           type="file"
                           accept="image/*"
-                          capture="environment"
-                          disabled={uploadingMeal === meal}
                           onChange={(e) => handlePhotoSelect(meal, e.target.files[0])}
                           style={{ display: "none" }}
                         />
