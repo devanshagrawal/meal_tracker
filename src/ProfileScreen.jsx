@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { GENDER_OPTIONS, CITY_OPTIONS } from "./auth";
+import { uploadProfilePhoto, deleteProfilePhoto, profilePhotoUrl } from "./profilePhoto";
 
 const C = {
   bg: "#f7f6f3",
@@ -30,12 +31,13 @@ const fieldStyle = {
 
 const labelStyle = { display: "block", fontSize: 12, color: C.sub, marginBottom: 6 };
 
-export default function ProfileScreen({ userId }) {
+export default function ProfileScreen({ userId, onAvatarChange }) {
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +67,39 @@ export default function ProfileScreen({ userId }) {
 
   function updateField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleAvatarSelect(file) {
+    if (!file) return;
+    setAvatarUploading(true);
+    try {
+      const path = await uploadProfilePhoto(userId, file);
+      const version = Date.now();
+      const { error } = await supabase
+        .from("profiles")
+        .update({ avatar_path: path, avatar_version: version })
+        .eq("id", userId);
+      if (error) throw error;
+      setProfile((prev) => ({ ...prev, avatar_path: path, avatar_version: version }));
+      onAvatarChange?.(path, version);
+    } catch (e) {
+      console.error(e);
+      setMessage({ type: "error", text: "Could not upload photo." });
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  async function handleAvatarRemove() {
+    const path = profile.avatar_path;
+    setProfile((prev) => ({ ...prev, avatar_path: null, avatar_version: null }));
+    onAvatarChange?.(null, null);
+    try {
+      await supabase.from("profiles").update({ avatar_path: null, avatar_version: null }).eq("id", userId);
+      if (path) await deleteProfilePhoto(path);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   async function handleSave(e) {
@@ -123,6 +158,47 @@ export default function ProfileScreen({ userId }) {
       <div style={{ maxWidth: 400, margin: "0 auto", background: C.card, borderRadius: 14, border: `1px solid ${C.border}`, padding: "24px 20px" }}>
         <div style={{ fontSize: 18, fontWeight: 800, color: C.text, marginBottom: 4 }}>My Profile</div>
         <div style={{ fontSize: 13, color: C.sub, marginBottom: 20 }}>@{profile.username}</div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
+          <div style={{ position: "relative", width: 72, height: 72, flexShrink: 0 }}>
+            {profile.avatar_path ? (
+              <img
+                src={profilePhotoUrl(profile.avatar_path, profile.avatar_version)}
+                alt="Profile"
+                style={{ width: 72, height: 72, borderRadius: "50%", objectFit: "cover", border: `1px solid ${C.border}`, display: "block" }}
+              />
+            ) : (
+              <div style={{
+                width: 72, height: 72, borderRadius: "50%", background: C.bg, border: `1px solid ${C.border}`,
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, color: C.sub,
+              }}>
+                👤
+              </div>
+            )}
+            {profile.avatar_path && (
+              <button
+                onClick={handleAvatarRemove}
+                style={{
+                  position: "absolute", top: -4, right: -4, width: 22, height: 22, borderRadius: "50%",
+                  background: C.red, color: "#fff", border: `2px solid ${C.card}`, cursor: "pointer", fontSize: 12, lineHeight: 1,
+                }}
+              >×</button>
+            )}
+          </div>
+          <label style={{
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8,
+            border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub, cursor: avatarUploading ? "default" : "pointer",
+          }}>
+            📷 {avatarUploading ? "Uploading…" : profile.avatar_path ? "Change photo" : "Add photo (optional)"}
+            <input
+              type="file"
+              accept="image/*"
+              disabled={avatarUploading}
+              onChange={(e) => handleAvatarSelect(e.target.files[0])}
+              style={{ display: "none" }}
+            />
+          </label>
+        </div>
 
         <form onSubmit={handleSave}>
           <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>

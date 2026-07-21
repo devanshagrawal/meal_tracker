@@ -118,6 +118,27 @@ function isMealLogged(m) {
   return Boolean(m.time);
 }
 
+// Consecutive submitted days ending today or yesterday — an unfinished
+// "today" doesn't break the streak, but a real gap (2+ days ago) does.
+function computeStreak(submittedDates, today) {
+  const todayKey = dateKey(today);
+  const yesterdayKey = dateKey(addDays(today, -1));
+  let cursor;
+  if (submittedDates.has(todayKey)) {
+    cursor = today;
+  } else if (submittedDates.has(yesterdayKey)) {
+    cursor = addDays(today, -1);
+  } else {
+    return 0;
+  }
+  let count = 0;
+  while (submittedDates.has(dateKey(cursor))) {
+    count += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return count;
+}
+
 const EMPTY_DAY = {
   morningWater: false,
   morningWaterType: "",
@@ -288,7 +309,7 @@ function WeekDot({ label, status, isSelected, onClick }) {
 }
 
 // ── Main App ──
-export default function MealTracker({ userId }) {
+export default function MealTracker({ userId, onGoToProgress }) {
   const [today] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [weekAnchor, setWeekAnchor] = useState(new Date());
@@ -300,6 +321,8 @@ export default function MealTracker({ userId }) {
   const [weekData, setWeekData] = useState({});
   const [showCelebration, setShowCelebration] = useState(false);
   const [uploadingMeal, setUploadingMeal] = useState(null);
+  const [streak, setStreak] = useState(0);
+  const [bodyProgressPending, setBodyProgressPending] = useState(false);
 
   const key = dateKey(selectedDate);
   const dayOfWeek = selectedDate.getDay();
@@ -311,6 +334,49 @@ export default function MealTracker({ userId }) {
   const thisWeekStart = startOfWeekMonday(today);
   const canGoNextWeek = addDays(weekStart, 7) <= thisWeekStart;
   const todayMidnight = midnight(today);
+
+  // Recompute the streak whenever a day's data changes (e.g. submit/unlock)
+  useEffect(() => {
+    async function loadStreak() {
+      const { data: rows, error } = await supabase
+        .from("day_logs")
+        .select("log_date")
+        .eq("user_id", userId)
+        .eq("submitted", true);
+      if (error || !rows) {
+        setStreak(0);
+        return;
+      }
+      setStreak(computeStreak(new Set(rows.map((r) => r.log_date)), today));
+    }
+    loadStreak();
+  }, [userId, today, data]);
+
+  // Every 7-day streak milestone owes one body-progress entry logged
+  // during that streak window; stays pending (regardless of how many
+  // more days pass) until enough entries have been logged to catch up.
+  useEffect(() => {
+    async function checkBodyProgressPending() {
+      const milestonesOwed = Math.floor(streak / 7);
+      if (milestonesOwed === 0) {
+        setBodyProgressPending(false);
+        return;
+      }
+      const streakStart = addDays(today, -(streak - 1));
+      const { data: rows, error } = await supabase
+        .from("body_metrics")
+        .select("log_date")
+        .eq("user_id", userId)
+        .gte("log_date", dateKey(streakStart))
+        .lte("log_date", dateKey(today));
+      if (error) {
+        setBodyProgressPending(false);
+        return;
+      }
+      setBodyProgressPending(milestonesOwed > (rows?.length || 0));
+    }
+    checkBodyProgressPending();
+  }, [userId, today, streak]);
 
   // Load selected day
   useEffect(() => {
@@ -436,12 +502,44 @@ export default function MealTracker({ userId }) {
     <div style={{ fontFamily: "'Inter', -apple-system, system-ui, sans-serif", background: C.bg, minHeight: "100vh", paddingBottom: 120 }}>
       {/* Header */}
       <div style={{ background: `linear-gradient(135deg, ${C.accent} 0%, #b83a1f 100%)`, padding: "20px 18px 16px", color: "#fff" }}>
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", opacity: 0.8, textTransform: "uppercase" }}>FitnessTalks · 37 Day Challenge</div>
-        <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{isToday ? "Today" : dayLabel(selectedDate)}</div>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>
-          {selectedDate.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", opacity: 0.8, textTransform: "uppercase" }}>FitnessTalks · 37 Day Challenge</div>
+            <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{isToday ? "Today" : dayLabel(selectedDate)}</div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>
+              {selectedDate.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}
+            </div>
+          </div>
+          {streak > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,0.18)",
+              borderRadius: 20, padding: "6px 12px", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap",
+            }}>
+              🔥 {streak}
+            </div>
+          )}
         </div>
       </div>
+
+      {bodyProgressPending && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+          background: C.yellowSoft, borderBottom: `1px solid ${C.yellow}`, padding: "10px 14px",
+        }}>
+          <div style={{ fontSize: 12, color: "#8a6400", fontWeight: 600 }}>
+            📏 7-day streak check-in — log your body progress
+          </div>
+          <button
+            onClick={onGoToProgress}
+            style={{
+              background: C.yellow, color: "#fff", border: "none", borderRadius: 8,
+              padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >
+            Log now
+          </button>
+        </div>
+      )}
 
       <div style={{ padding: "12px 14px 0" }}>
 

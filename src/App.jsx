@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { signOut } from "./auth";
+import { profilePhotoUrl } from "./profilePhoto";
 import AuthScreen from "./AuthScreen";
 import MealTracker from "./MealTracker";
 import ProfileScreen from "./ProfileScreen";
+import BodyProgressTab from "./BodyProgressTab";
 
 const C = {
   bg: "#f7f6f3",
@@ -33,8 +35,9 @@ function menuItemStyle(active, danger) {
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading, null = signed out
-  const [view, setView] = useState("tracker"); // "tracker" | "profile"
+  const [view, setView] = useState("tracker"); // "tracker" | "profile" | "progress"
   const [menuOpen, setMenuOpen] = useState(false);
+  const [avatar, setAvatar] = useState({ path: null, version: null });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -43,6 +46,18 @@ export default function App() {
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    supabase
+      .from("profiles")
+      .select("avatar_path, avatar_version")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) setAvatar({ path: data.avatar_path, version: data.avatar_version });
+      });
+  }, [session]);
 
   if (session === undefined) {
     return (
@@ -78,9 +93,22 @@ export default function App() {
           ☰
         </button>
         <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-          {view === "profile" ? "My Profile" : "My Daily Tracker"}
+          {view === "profile" ? "My Profile" : view === "progress" ? "Body Progress" : "My Daily Tracker"}
         </div>
-        <div style={{ width: 28 }} />
+        {avatar.path ? (
+          <img
+            src={profilePhotoUrl(avatar.path, avatar.version)}
+            alt="Profile"
+            style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", border: `1px solid ${C.border}` }}
+          />
+        ) : (
+          <div style={{
+            width: 28, height: 28, borderRadius: "50%", background: C.bg, border: `1px solid ${C.border}`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: C.sub,
+          }}>
+            👤
+          </div>
+        )}
 
         {menuOpen && (
           <>
@@ -115,6 +143,12 @@ export default function App() {
               >
                 My Profile
               </button>
+              <button
+                onClick={() => { setView("progress"); setMenuOpen(false); }}
+                style={menuItemStyle(view === "progress")}
+              >
+                Body Progress
+              </button>
               <div style={{ borderTop: `1px solid ${C.border}` }} />
               <button
                 onClick={() => { setMenuOpen(false); signOut(); }}
@@ -127,7 +161,16 @@ export default function App() {
         )}
       </div>
 
-      {view === "profile" ? <ProfileScreen userId={session.user.id} /> : <MealTracker userId={session.user.id} />}
+      {view === "profile" ? (
+        <ProfileScreen
+          userId={session.user.id}
+          onAvatarChange={(path, version) => setAvatar({ path, version })}
+        />
+      ) : view === "progress" ? (
+        <BodyProgressTab userId={session.user.id} />
+      ) : (
+        <MealTracker userId={session.user.id} onGoToProgress={() => setView("progress")} />
+      )}
     </div>
   );
 }
