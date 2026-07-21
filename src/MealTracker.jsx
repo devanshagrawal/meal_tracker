@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
+import { uploadMealPhoto, deleteMealPhoto, mealPhotoUrl } from "./mealPhotos";
 
 // ── 7-day meal rotation ──
 const MEAL_PLAN = {
@@ -122,9 +123,9 @@ const EMPTY_DAY = {
   morningWaterType: "",
   morningNuts: false,
   meals: {
-    breakfast: { selection: null, otherTitle: "", otherDescription: "", time: "" },
-    lunch: { selection: null, otherTitle: "", otherDescription: "", time: "" },
-    dinner: { selection: null, otherTitle: "", otherDescription: "", time: "" },
+    breakfast: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null },
+    lunch: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null },
+    dinner: { selection: null, otherTitle: "", otherDescription: "", time: "", photoPath: null },
   },
   extras: [],
   waterGlasses: 0,
@@ -298,6 +299,7 @@ export default function MealTracker({ userId }) {
   const [showExtraInput, setShowExtraInput] = useState(false);
   const [weekData, setWeekData] = useState({});
   const [showCelebration, setShowCelebration] = useState(false);
+  const [uploadingMeal, setUploadingMeal] = useState(null);
 
   const key = dateKey(selectedDate);
   const dayOfWeek = selectedDate.getDay();
@@ -369,6 +371,7 @@ export default function MealTracker({ userId }) {
   }
 
   function selectMeal(meal, value) {
+    const previousPhotoPath = data.meals[meal].photoPath;
     update((d) => {
       d.meals[meal].selection = value;
       if (value !== SKIPPED_VALUE && !d.meals[meal].time) {
@@ -378,7 +381,32 @@ export default function MealTracker({ userId }) {
         d.meals[meal].otherTitle = "";
         d.meals[meal].otherDescription = "";
       }
+      if (value === SKIPPED_VALUE) {
+        d.meals[meal].photoPath = null;
+      }
     });
+    if (value === SKIPPED_VALUE && previousPhotoPath) {
+      deleteMealPhoto(previousPhotoPath).catch((e) => console.error(e));
+    }
+  }
+
+  async function handlePhotoSelect(meal, file) {
+    if (!file) return;
+    setUploadingMeal(meal);
+    try {
+      const path = await uploadMealPhoto(userId, key, meal, file);
+      update((d) => { d.meals[meal].photoPath = path; });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setUploadingMeal(null);
+    }
+  }
+
+  function handleRemovePhoto(meal) {
+    const path = data.meals[meal].photoPath;
+    update((d) => { d.meals[meal].photoPath = null; });
+    if (path) deleteMealPhoto(path).catch((e) => console.error(e));
   }
 
   function addExtra() {
@@ -525,6 +553,43 @@ export default function MealTracker({ userId }) {
 
                 {mealData.selection === SKIPPED_VALUE && (
                   <div style={{ fontSize: 12, color: C.red, fontWeight: 600 }}>Marked as skipped</div>
+                )}
+
+                {mealData.selection && mealData.selection !== SKIPPED_VALUE && (
+                  <div style={{ marginTop: 10 }}>
+                    <label style={{ display: "block", fontSize: 11, color: C.sub, marginBottom: 4 }}>Photo (optional)</label>
+                    {mealData.photoPath ? (
+                      <div style={{ position: "relative", display: "inline-block" }}>
+                        <img
+                          src={mealPhotoUrl(mealData.photoPath)}
+                          alt={`${meal} photo`}
+                          style={{ width: 96, height: 96, borderRadius: 8, objectFit: "cover", border: `1px solid ${C.border}`, display: "block" }}
+                        />
+                        <button
+                          onClick={() => handleRemovePhoto(meal)}
+                          style={{
+                            position: "absolute", top: -8, right: -8, width: 22, height: 22, borderRadius: "50%",
+                            background: C.red, color: "#fff", border: `2px solid ${C.card}`, cursor: "pointer", fontSize: 12, lineHeight: 1,
+                          }}
+                        >×</button>
+                      </div>
+                    ) : (
+                      <label style={{
+                        display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8,
+                        border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub, cursor: "pointer",
+                      }}>
+                        📷 {uploadingMeal === meal ? "Uploading…" : "Add photo"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          disabled={uploadingMeal === meal}
+                          onChange={(e) => handlePhotoSelect(meal, e.target.files[0])}
+                          style={{ display: "none" }}
+                        />
+                      </label>
+                    )}
+                  </div>
                 )}
               </Section>
             );
