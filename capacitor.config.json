@@ -1,0 +1,9 @@
+{
+  "appId": "com.fitnesstalks.mealtracker",
+  "appName": "FitnessTalks Meal Tracker",
+  "webDir": "dist",
+  "server": {
+    "url": "https://meal-tracker-sooty-eta.vercel.app",
+    "cleartext": false
+  }
+}

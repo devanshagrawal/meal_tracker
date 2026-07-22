@@ -2,6 +2,10 @@ html, body {
   margin: 0;
   overscroll-behavior-y: contain;
   background: #f7f6f3;
+  /* Keeps content clear of notches/status bars in standalone PWA mode
+     and inside the native Android app; resolves to 0px elsewhere. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 * {
@@ -18,12 +22,4 @@ button {
 input, textarea, select {
   -webkit-user-select: text;
   user-select: text;
-}
-
-/* Standalone (installed) mode: keep content clear of the notch and home indicator */
-@media (display-mode: standalone) {
-  body {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
 }
