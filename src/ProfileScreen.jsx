@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { GENDER_OPTIONS, CITY_OPTIONS } from "./auth";
 import { uploadProfilePhoto, deleteProfilePhoto, profilePhotoUrl } from "./profilePhoto";
+import PhotoPickerButton from "./PhotoPickerButton";
 
 const C = {
   bg: "#f7f6f3",
@@ -185,19 +186,24 @@ export default function ProfileScreen({ userId, onAvatarChange }) {
               >×</button>
             )}
           </div>
-          <label style={{
-            display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8,
-            border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub, cursor: avatarUploading ? "default" : "pointer",
-          }}>
-            📷 {avatarUploading ? "Uploading…" : profile.avatar_path ? "Change photo" : "Add photo (optional)"}
-            <input
-              type="file"
-              accept="image/*"
-              disabled={avatarUploading}
-              onChange={(e) => handleAvatarSelect(e.target.files[0])}
-              style={{ display: "none" }}
+          {avatarUploading ? (
+            <div style={{
+              display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 8,
+              border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub,
+            }}>
+              Uploading…
+            </div>
+          ) : (
+            <PhotoPickerButton
+              triggerContent={<>📷 {profile.avatar_path ? "Change photo" : "Add photo (optional)"}</>}
+              triggerStyle={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8,
+                border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub, background: "none",
+              }}
+              captureMode="user"
+              onSelect={handleAvatarSelect}
             />
-          </label>
+          )}
         </div>
 
         <form onSubmit={handleSave}>

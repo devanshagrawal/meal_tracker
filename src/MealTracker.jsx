@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import { uploadMealPhoto, deleteMealPhoto, mealPhotoUrl } from "./mealPhotos";
+import PhotoPickerButton from "./PhotoPickerButton";
 
 // ── 7-day meal rotation ──
 const MEAL_PLAN = {
@@ -680,18 +681,14 @@ export default function MealTracker({ userId, onGoToProgress }) {
                         Uploading…
                       </div>
                     ) : (
-                      <label style={{
-                        display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8,
-                        border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub, cursor: "pointer",
-                      }}>
-                        📷 Add photo
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handlePhotoSelect(meal, e.target.files[0])}
-                          style={{ display: "none" }}
-                        />
-                      </label>
+                      <PhotoPickerButton
+                        triggerContent={<>📷 Add photo</>}
+                        triggerStyle={{
+                          display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 8,
+                          border: `1.5px dashed ${C.border}`, fontSize: 12, color: C.sub, background: "none",
+                        }}
+                        onSelect={(file) => handlePhotoSelect(meal, file)}
+                      />
                     )}
                   </div>
                 )}

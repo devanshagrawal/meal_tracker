@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { uploadBodyPhoto, deleteBodyPhoto, bodyPhotoUrl } from "./bodyPhotos";
+import PhotoPickerButton from "./PhotoPickerButton";
 
 const C = {
   bg: "#f7f6f3",
@@ -313,19 +314,15 @@ export default function BodyProgressTab({ userId, initialDate }) {
                               >×</button>
                             </div>
                           ) : (
-                            <label style={{
-                              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
-                              width: 72, height: 72, borderRadius: 8, border: `1.5px dashed ${C.border}`, cursor: "pointer", fontSize: 10, color: C.sub,
-                            }}>
-                              {uploadingAngle === angle ? "…" : "📷"}
-                              <input
-                                type="file"
-                                accept="image/*"
-                                disabled={uploadingAngle === angle}
-                                onChange={(e) => handlePhotoSelect(angle, column, e.target.files[0])}
-                                style={{ display: "none" }}
-                              />
-                            </label>
+                            <PhotoPickerButton
+                              triggerContent={uploadingAngle === angle ? "…" : "📷"}
+                              triggerStyle={{
+                                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+                                width: 72, height: 72, borderRadius: 8, border: `1.5px dashed ${C.border}`, fontSize: 10, color: C.sub, background: "none",
+                              }}
+                              disabled={uploadingAngle === angle}
+                              onSelect={(file) => handlePhotoSelect(angle, column, file)}
+                            />
                           )}
                           <div style={{ fontSize: 10, color: C.sub, marginTop: 4 }}>{label}</div>
                         </div>
