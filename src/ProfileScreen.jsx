@@ -57,6 +57,7 @@ export default function ProfileScreen({ userId, onAvatarChange }) {
             age: data.age,
             gender: data.gender,
             city: data.city,
+            recovery_email: data.recovery_email || "",
           });
         }
         setLoading(false);
@@ -116,6 +117,11 @@ export default function ProfileScreen({ userId, onAvatarChange }) {
       setMessage({ type: "error", text: "Enter a valid age." });
       return;
     }
+    const recoveryEmail = form.recovery_email.trim();
+    if (recoveryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail)) {
+      setMessage({ type: "error", text: "Enter a valid recovery email, or leave it blank." });
+      return;
+    }
 
     setSaving(true);
     const { error } = await supabase
@@ -126,6 +132,7 @@ export default function ProfileScreen({ userId, onAvatarChange }) {
         age: ageNum,
         gender: form.gender,
         city: form.city,
+        recovery_email: recoveryEmail || null,
       })
       .eq("id", userId);
     setSaving(false);
@@ -240,13 +247,27 @@ export default function ProfileScreen({ userId, onAvatarChange }) {
             </div>
           </div>
 
-          <div style={{ marginBottom: 18 }}>
+          <div style={{ marginBottom: 14 }}>
             <label style={labelStyle}>City</label>
             <select value={form.city} onChange={(e) => updateField("city", e.target.value)} style={fieldStyle}>
               {CITY_OPTIONS.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
+          </div>
+
+          <div style={{ marginBottom: 18 }}>
+            <label style={labelStyle}>Recovery email (optional)</label>
+            <input
+              type="email"
+              value={form.recovery_email}
+              onChange={(e) => updateField("recovery_email", e.target.value)}
+              placeholder="you@example.com"
+              style={fieldStyle}
+            />
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>
+              Needed for "Forgot password" — without one on file, you'd need to be helped manually.
+            </div>
           </div>
 
           {message && (

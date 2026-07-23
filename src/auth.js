@@ -100,3 +100,23 @@ export async function signInWithUsername(rawUsername, password) {
 export async function signOut() {
   await supabase.auth.signOut();
 }
+
+// Always resolves (never throws) — the backend intentionally returns a
+// generic message regardless of whether the username/recovery-email
+// exists, to avoid revealing account details to an attacker.
+export async function requestPasswordReset(rawUsername) {
+  const username = normalizeUsername(rawUsername);
+  await supabase.functions.invoke("request-password-reset", { body: { username } });
+}
+
+export async function confirmPasswordReset(token, newPassword) {
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) throw new Error(passwordError);
+
+  const { data, error } = await supabase.functions.invoke("confirm-password-reset", {
+    body: { token, newPassword },
+  });
+  if (error) throw new Error("This reset link is invalid or has expired.");
+  if (data?.error) throw new Error(data.error);
+  return data;
+}

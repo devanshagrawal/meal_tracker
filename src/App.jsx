@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { signOut } from "./auth";
 import { profilePhotoUrl } from "./profilePhoto";
+import { registerForPushNotifications } from "./pushNotifications";
 import AuthScreen from "./AuthScreen";
 import MealTracker from "./MealTracker";
 import ProfileScreen from "./ProfileScreen";
 import BodyProgressTab from "./BodyProgressTab";
+import ResetPasswordScreen from "./ResetPasswordScreen";
 
 const C = {
   bg: "#f7f6f3",
@@ -58,6 +60,24 @@ export default function App() {
         if (data) setAvatar({ path: data.avatar_path, version: data.avatar_version });
       });
   }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    registerForPushNotifications(session.user.id);
+  }, [session]);
+
+  const resetToken = new URLSearchParams(window.location.search).get("reset_token");
+  if (resetToken) {
+    return (
+      <ResetPasswordScreen
+        token={resetToken}
+        onDone={() => {
+          window.history.replaceState({}, "", window.location.pathname);
+          window.location.reload();
+        }}
+      />
+    );
+  }
 
   if (session === undefined) {
     return (

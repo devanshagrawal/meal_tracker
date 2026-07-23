@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   signInWithUsername,
   signUpWithUsername,
+  requestPasswordReset,
   GENDER_OPTIONS,
   CITY_OPTIONS,
 } from "./auth";
@@ -50,12 +51,13 @@ function Field({ label, children }) {
 }
 
 export default function AuthScreen({ onAuthed }) {
-  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot"
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   function updateProfile(field, value) {
     setProfile((prev) => ({ ...prev, [field]: value }));
@@ -64,6 +66,7 @@ export default function AuthScreen({ onAuthed }) {
   function switchMode(next) {
     setMode(next);
     setError("");
+    setResetSent(false);
   }
 
   async function handleSubmit(e) {
@@ -71,11 +74,16 @@ export default function AuthScreen({ onAuthed }) {
     setError("");
     setBusy(true);
     try {
-      const result =
-        mode === "login"
-          ? await signInWithUsername(username, password)
-          : await signUpWithUsername(username, password, profile);
-      onAuthed(result);
+      if (mode === "forgot") {
+        await requestPasswordReset(username);
+        setResetSent(true);
+      } else {
+        const result =
+          mode === "login"
+            ? await signInWithUsername(username, password)
+            : await signUpWithUsername(username, password, profile);
+        onAuthed(result);
+      }
     } catch (err) {
       setError(err.message || "Something went wrong.");
     } finally {
@@ -123,11 +131,27 @@ export default function AuthScreen({ onAuthed }) {
           FitnessTalks · 37 Day Challenge
         </div>
         <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 20 }}>
-          {mode === "login" ? "Log in" : "Create account"}
+          {mode === "login" ? "Log in" : mode === "signup" ? "Create account" : "Reset password"}
         </div>
 
+        {mode === "forgot" && resetSent ? (
+          <div>
+            <div style={{ background: C.bg, borderRadius: 8, padding: "12px 14px", fontSize: 13, color: C.text, lineHeight: 1.5, marginBottom: 16 }}>
+              If <strong>{username.trim().toLowerCase()}</strong> has a recovery email on file, we've sent a reset link to it. Check your inbox.
+            </div>
+            <button
+              onClick={() => switchMode("login")}
+              style={{
+                width: "100%", padding: "11px", borderRadius: 8, border: `1px solid ${C.border}`,
+                background: "none", color: C.text, fontSize: 14, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              Back to log in
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 14 }}>
+          <div style={{ marginBottom: mode === "forgot" ? 16 : 14 }}>
             <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
               Username
             </label>
@@ -140,6 +164,7 @@ export default function AuthScreen({ onAuthed }) {
             />
           </div>
 
+          {mode !== "forgot" && (
           <div style={{ marginBottom: mode === "signup" ? 14 : 16 }}>
             <label style={{ display: "block", fontSize: 12, color: C.sub, marginBottom: 6 }}>
               Password
@@ -152,6 +177,7 @@ export default function AuthScreen({ onAuthed }) {
               style={fieldStyle}
             />
           </div>
+          )}
 
           {mode === "signup" && (
             <>
@@ -240,7 +266,7 @@ export default function AuthScreen({ onAuthed }) {
 
           <button
             type="submit"
-            disabled={busy || !username || !password || signupIncomplete}
+            disabled={busy || !username || (mode !== "forgot" && !password) || signupIncomplete}
             style={{
               width: "100%",
               padding: "11px",
@@ -253,10 +279,24 @@ export default function AuthScreen({ onAuthed }) {
               cursor: busy ? "default" : "pointer",
             }}
           >
-            {busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
+            {busy ? "Please wait…" : mode === "login" ? "Log in" : mode === "signup" ? "Create account" : "Send reset link"}
           </button>
-        </form>
 
+          {mode === "login" && (
+            <div style={{ textAlign: "center", marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => switchMode("forgot")}
+                style={{ background: "none", border: "none", color: C.sub, cursor: "pointer", fontSize: 12, padding: 0 }}
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+        </form>
+        )}
+
+        {mode !== "forgot" && (
         <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: C.sub }}>
           {mode === "login" ? (
             <>
@@ -296,6 +336,7 @@ export default function AuthScreen({ onAuthed }) {
             </>
           )}
         </div>
+        )}
       </div>
     </div>
   );
