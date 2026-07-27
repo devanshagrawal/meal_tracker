@@ -3,6 +3,7 @@ import { supabase } from "./supabaseClient";
 import { GENDER_OPTIONS, CITY_OPTIONS } from "./auth";
 import { uploadProfilePhoto, deleteProfilePhoto, profilePhotoUrl } from "./profilePhoto";
 import PhotoPickerButton from "./PhotoPickerButton";
+import { getReminderSettings, saveReminderSettings, scheduleReminder, cancelReminder } from "./localReminders";
 
 const C = {
   bg: "#f7f6f3",
@@ -39,6 +40,24 @@ export default function ProfileScreen({ userId, onAvatarChange }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [reminder, setReminder] = useState(() => getReminderSettings());
+
+  function handleReminderToggle(next) {
+    const updated = { ...reminder, enabled: next };
+    setReminder(updated);
+    saveReminderSettings(updated);
+    if (next) scheduleReminder(updated.hour, updated.minute);
+    else cancelReminder();
+  }
+
+  function handleReminderTimeChange(value) {
+    const [h, m] = value.split(":").map(Number);
+    if (!Number.isInteger(h) || !Number.isInteger(m)) return;
+    const updated = { ...reminder, hour: h, minute: m };
+    setReminder(updated);
+    saveReminderSettings(updated);
+    if (updated.enabled) scheduleReminder(h, m);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -303,6 +322,35 @@ export default function ProfileScreen({ userId, onAvatarChange }) {
             {saving ? "Saving…" : "Save changes"}
           </button>
         </form>
+
+        <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 22, paddingTop: 18 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 2 }}>Evening reminder</div>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 14 }}>
+            A nightly nudge to soak your almonds &amp; walnuts and set out your morning water. Delivered on the Android app.
+          </div>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: reminder.enabled ? 14 : 0 }}>
+            <input
+              type="checkbox"
+              checked={reminder.enabled}
+              onChange={(e) => handleReminderToggle(e.target.checked)}
+              style={{ width: 18, height: 18, accentColor: C.accent, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 14, color: C.text }}>Remind me every evening</span>
+          </label>
+
+          {reminder.enabled && (
+            <div>
+              <label style={labelStyle}>Reminder time</label>
+              <input
+                type="time"
+                value={`${String(reminder.hour).padStart(2, "0")}:${String(reminder.minute).padStart(2, "0")}`}
+                onChange={(e) => handleReminderTimeChange(e.target.value)}
+                style={{ ...fieldStyle, width: "auto" }}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

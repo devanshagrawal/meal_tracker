@@ -3,6 +3,7 @@ import { supabase } from "./supabaseClient";
 import { signOut } from "./auth";
 import { profilePhotoUrl } from "./profilePhoto";
 import { registerForPushNotifications } from "./pushNotifications";
+import { initReminder } from "./localReminders";
 import AuthScreen from "./AuthScreen";
 import MealTracker from "./MealTracker";
 import ProfileScreen from "./ProfileScreen";
@@ -64,6 +65,7 @@ export default function App() {
   useEffect(() => {
     if (!session) return;
     registerForPushNotifications(session.user.id);
+    initReminder();
   }, [session]);
 
   const resetToken = new URLSearchParams(window.location.search).get("reset_token");
