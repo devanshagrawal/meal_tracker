@@ -13,9 +13,17 @@ async function saveToken(userId, token) {
   if (error) console.error("Failed to save push token:", error);
 }
 
+// Firebase/FCM is not configured yet (no google-services.json). Once the
+// @capacitor/push-notifications native plugin is compiled into the APK,
+// calling PushNotifications.register() without an initialized FirebaseApp
+// HARD-CRASHES the Android app on a native thread ("Default FirebaseApp is
+// not initialized" → FirebaseMessaging.getInstance), which a JS try/catch
+// cannot catch. Keep this false until Firebase is actually set up.
+const PUSH_ENABLED = false;
+
 // No-ops outside the native Android app (web/PWA never call this).
 export async function registerForPushNotifications(userId) {
-  if (!isNativeAndroid()) return;
+  if (!PUSH_ENABLED || !isNativeAndroid()) return;
 
   try {
     let permStatus = await PushNotifications.checkPermissions();
