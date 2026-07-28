@@ -90,7 +90,14 @@ export async function scheduleReminder(hour, minute) {
 export async function cancelReminder() {
   if (!isNativeAndroid()) return;
   try {
+    // Cancel by id, plus sweep any other pending notifications. This app only
+    // ever schedules the single reminder, so clearing all pending is safe and
+    // guards against stacking: cancel-by-id alone proved unreliable when the
+    // time was changed right after toggling on (the old alarm survived).
     await LocalNotifications.cancel({ notifications: [{ id: REMINDER_ID }] });
+    const pending = await LocalNotifications.getPending();
+    const ids = (pending?.notifications ?? []).map((n) => ({ id: n.id }));
+    if (ids.length) await LocalNotifications.cancel({ notifications: ids });
   } catch (e) {
     console.error("Failed to cancel reminder:", e);
   }
